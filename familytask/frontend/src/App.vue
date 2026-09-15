@@ -1,43 +1,49 @@
 <script setup>
-import { ref } from 'vue'
+import { onMounted, ref } from 'vue'
 import TaskList from './components/TaskList.vue'
 
-// La liste des tâches est réactive : Vue met l'affichage à jour quand elle change.
-const tasks = ref([
-  { id: 1, title: 'Ranger la chambre', done: false },
-  { id: 2, title: 'Faire les devoirs', done: true },
-])
+// La liste des tâches est réactive et provient de l'API.
+const tasks = ref([])
 
 // Le texte saisi dans le champ du formulaire.
 const newTaskTitle = ref('')
 
-// Ajoute une nouvelle tâche à la liste.
-function addTask() {
+// Recharge la liste des tâches depuis l'API.
+async function loadTasks() {
+  const response = await fetch('/api/tasks')
+  tasks.value = await response.json()
+}
+
+// Ajoute une nouvelle tâche via l'API, puis recharge la liste.
+async function addTask() {
   const title = newTaskTitle.value.trim()
 
   // Ne rien ajouter si le champ est vide.
   if (!title) return
 
-  tasks.value.push({
-    id: Date.now(),
-    title,
-    done: false,
+  await fetch(`/api/tasks?title=${encodeURIComponent(title)}`, {
+    method: 'POST',
   })
+  await loadTasks()
 
   // Vide le champ après l'ajout.
   newTaskTitle.value = ''
 }
 
-// Inverse l'état terminé de la tâche sélectionnée.
-function toggleTask(taskId) {
-  const task = tasks.value.find((item) => item.id === taskId)
-  if (task) task.done = !task.done
+// Inverse l'état terminé d'une tâche via l'API, puis recharge la liste.
+async function toggleTask(taskId) {
+  await fetch(`/api/tasks/${taskId}`, { method: 'PATCH' })
+  await loadTasks()
 }
 
-// Supprime la tâche sélectionnée.
-function removeTask(taskId) {
-  tasks.value = tasks.value.filter((task) => task.id !== taskId)
+// Supprime une tâche via l'API, puis recharge la liste.
+async function removeTask(taskId) {
+  await fetch(`/api/tasks/${taskId}`, { method: 'DELETE' })
+  await loadTasks()
 }
+
+// Charge les tâches dès que le composant est monté.
+onMounted(loadTasks)
 </script>
 
 <template>
