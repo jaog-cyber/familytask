@@ -10,7 +10,7 @@
         --completed: #b0abb8;
         --line: #ece8f5;
         --danger-soft: #fff1f2;
-        --shadow: 0 18px 44px rgba(67, 35, 125, 0.12);
+        --shadow: 0 18px 45px rgba(67, 35, 125, 0.12);
 }
 
 * { box-sizing: border-box; }
