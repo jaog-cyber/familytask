@@ -91,6 +91,16 @@ h2 { margin: 0; color: var(--text); font-size: 22px; letter-spacing: -0.03em; }
 }
 .task-input::placeholder { color: var(--muted); }
 .task-input:focus { border-color: var(--accent); box-shadow: 0 0 0 4px rgba(139, 92, 246, 0.14); }
+.assignee-select {
+        min-width: 135px;
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        outline: none;
+        background: var(--page);
+        color: var(--text);
+        padding: 0 10px;
+}
+.assignee-select:focus { border-color: var(--accent); box-shadow: 0 0 0 4px rgba(139, 92, 246, 0.14); }
 .primary-button {
         border: 0;
         border-radius: 12px;
@@ -157,6 +167,7 @@ h2 { margin: 0; color: var(--text); font-size: 22px; letter-spacing: -0.03em; }
         .app-main { padding: 0 12px 24px; }
         .card { padding: 18px 14px; border-radius: 20px; }
         .task-form { align-items: stretch; }
+        .assignee-select { min-width: 0; flex: 1; }
         .primary-button { padding: 0 14px; }
 }
 
@@ -176,4 +187,47 @@ h2 { margin: 0; color: var(--text); font-size: 22px; letter-spacing: -0.03em; }
         .card { border-color: rgba(255, 255, 255, 0.06); }
         .task-input { background: #1d1728; }
         .task-item:hover { background: #2b223a; }
+}
+
+.header-content { max-width: 760px; }
+.header-action { margin-left: auto; border: 0; background: transparent; color: rgba(255,255,255,.82); cursor: pointer; font-size: 13px; font-weight: 700; }
+.app-main { max-width: 760px; margin-top: -30px; }
+.view { display: grid; gap: 16px; }
+.welcome { padding: 10px 4px 2px; }
+.welcome h2 { font-size: 30px; }
+.muted { color: var(--muted); line-height: 1.5; }
+.section-heading { margin-bottom: 4px; }
+.section-heading h3, .card h3 { margin: 0; font-size: 19px; }
+.tabbar { display: flex; justify-content: center; gap: 8px; max-width: 760px; margin: 16px auto 0; padding: 10px 16px 24px; }
+.tab { min-width: 112px; padding: 11px 14px; border-radius: 12px; color: var(--muted); text-align: center; text-decoration: none; font-size: 13px; font-weight: 800; }
+.tab.router-link-active { background: var(--accent-light); color: var(--main); }
+.auth { max-width: 480px; margin: 32px auto 0; }
+.auth-hero { margin-bottom: 24px; }
+.auth-logo { display: block; margin-bottom: 12px; font-size: 34px; }
+.auth-hero h2 { font-size: 28px; }
+.form-stack { display: grid; gap: 14px; }
+.form-stack label { display: grid; gap: 6px; color: var(--muted); font-size: 13px; font-weight: 800; }
+.form-stack input, .assistant-card input { width: 100%; border: 1px solid var(--line); border-radius: 12px; background: var(--page); color: var(--text); padding: 12px 14px; outline: none; }
+.form-stack input:focus, .assistant-card input:focus { border-color: var(--accent); box-shadow: 0 0 0 4px rgba(139,92,246,.14); }
+.block { width: 100%; min-height: 44px; }
+.switch-link { color: var(--muted); font-size: 14px; text-align: center; }
+.switch-link a { color: var(--main); font-weight: 800; }
+.error-message { color: #be123c; font-size: 14px; }
+.profile-card { display: flex; align-items: center; gap: 14px; }
+.profile-avatar { display: grid; width: 48px; height: 48px; place-items: center; border-radius: 50%; background: var(--accent-light); color: var(--main); font-size: 20px; font-weight: 900; }
+.profile-card h3 { margin-bottom: 3px; }
+.profile-card p { margin: 0; }
+.info-card { border-left: 4px solid var(--accent); }
+.info-card p { margin-bottom: 0; }
+.about-card { border-left: 4px solid var(--accent); }
+.about-card p { margin: 0; color: var(--text); font-size: 16px; line-height: 1.7; }
+.messages { display: grid; gap: 10px; min-height: 100px; }
+.message { display: grid; gap: 3px; margin: 0; padding: 11px 13px; border-radius: 12px; background: var(--page); font-size: 14px; }
+.message strong { color: var(--main); font-size: 12px; }
+.assistant-card .task-form { align-items: center; }
+
+@media (max-width: 520px) {
+        .header-action { max-width: 92px; text-align: right; }
+        .tab { min-width: 0; flex: 1; padding-inline: 8px; }
+        .welcome h2 { font-size: 25px; }
 }

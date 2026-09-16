@@ -22,6 +22,8 @@ services:
       - "8000:8000"
     environment:
       DATABASE_URL: postgresql://familytask:familytask@db:5432/familytask
+      APP_ENV: ${APP_ENV:-development}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173}
       # Clé de l'IA. Vient du secret Codespaces (ou du fichier .env en local).
       # Sans elle, l'app marche : seul l'assistant IA répond qu'il n'est pas prêt.
       AI_TOKEN: ${AI_TOKEN:-}
