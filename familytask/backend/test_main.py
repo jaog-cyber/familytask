@@ -1,18 +1,31 @@
 import os
 import tempfile
+import uuid
 import unittest
 
 from fastapi.testclient import TestClient
 
-TEST_DB_PATH = os.path.join(tempfile.gettempdir(), "familytask_test.db")
+TEST_DB_PATH = os.path.join(tempfile.gettempdir(), f"familytask_test_{uuid.uuid4().hex}.db")
 os.environ["DATABASE_URL"] = f"sqlite:///{TEST_DB_PATH}"
 
 import main
 
 
+def reset_test_database():
+    if os.path.exists(TEST_DB_PATH):
+        os.remove(TEST_DB_PATH)
+    if hasattr(main, "engine"):
+        main.engine.dispose()
+    main.engine = main.create_engine(
+        f"sqlite:///{TEST_DB_PATH}",
+        echo=False,
+        connect_args={"check_same_thread": False},
+    )
+
+
 class AmbiguousFamilyLinkTests(unittest.TestCase):
     def setUp(self):
-        main.SQLModel.metadata.drop_all(main.engine)
+        reset_test_database()
         main.SQLModel.metadata.create_all(main.engine)
         password_hash = main.hash_password("secret-pass")
         with main.Session(main.engine) as session:
@@ -37,8 +50,8 @@ class AmbiguousFamilyLinkTests(unittest.TestCase):
 
     def tearDown(self):
         main.SQLModel.metadata.drop_all(main.engine)
-        if os.path.exists("test_familytask.db"):
-            os.remove("test_familytask.db")
+        if os.path.exists(TEST_DB_PATH):
+            os.remove(TEST_DB_PATH)
 
     def test_detects_ambiguous_female_link_in_raw_message(self):
         result = main.find_ambiguous_family_reference("fam-test", "Ajoute une tâche pour ma fille")
@@ -48,7 +61,7 @@ class AmbiguousFamilyLinkTests(unittest.TestCase):
 class AssistantRouteTests(unittest.TestCase):
     def setUp(self):
         os.environ.pop("AI_TOKEN", None)
-        main.SQLModel.metadata.drop_all(main.engine)
+        reset_test_database()
         main.SQLModel.metadata.create_all(main.engine)
         password_hash = main.hash_password("secret-pass")
         with main.Session(main.engine) as session:
@@ -67,7 +80,8 @@ class AssistantRouteTests(unittest.TestCase):
 
     def tearDown(self):
         os.environ.pop("AI_TOKEN", None)
-        main.SQLModel.metadata.drop_all(main.engine)
+        if hasattr(main, "engine"):
+            main.engine.dispose()
         if os.path.exists(TEST_DB_PATH):
             os.remove(TEST_DB_PATH)
 
@@ -82,6 +96,11 @@ class AssistantRouteTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         payload = response.json()
         self.assertIn("assistant", payload["message"].lower())
+
+    def test_env_file_loads_ai_token(self):
+        os.environ.pop("AI_TOKEN", None)
+        self.assertIsNotNone(main.load_environment())
+        self.assertTrue(os.getenv("AI_TOKEN"))
 
 
 if __name__ == "__main__":

@@ -10,6 +10,7 @@ from collections import defaultdict, deque
 from typing import Annotated
 
 import httpx
+from dotenv import load_dotenv
 from fastapi import (  # Importe les outils HTTP de FastAPI.
     Cookie,
     Depends,
@@ -32,6 +33,19 @@ from sqlmodel import (  # Importe les outils SQLModel nécessaires au modèle et
     select,
 )
 
+def load_environment() -> str | None:
+    project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    env_candidates = [
+        os.path.join(project_root, ".env"),
+        os.path.join(os.path.dirname(__file__), ".env"),
+    ]
+    for env_path in env_candidates:
+        if os.path.exists(env_path):
+            load_dotenv(env_path, override=False)
+    return os.getenv("AI_TOKEN")
+
+
+load_environment()
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///familytask.db")  # Récupère l'adresse de la base ou utilise SQLite localement.
 APP_ENV = os.getenv("APP_ENV", "development").lower()  # Distingue le développement de la production.
 SESSION_COOKIE = "familytask_session"  # Nom du cookie de session inaccessible au JavaScript.
