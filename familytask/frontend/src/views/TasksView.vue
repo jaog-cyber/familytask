@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import TaskList from '../components/TaskList.vue'
 import { apiFetch, getMe, setSession } from '../api.js'
 
@@ -19,6 +19,12 @@ async function refresh() {
     return
   }
   tasks.value = await response.json()
+}
+
+function handleTasksRefresh() {
+  refresh().catch(() => {
+    error.value = 'Le serveur est momentanément indisponible.'
+  })
 }
 
 async function addTask() {
@@ -53,6 +59,12 @@ onMounted(async () => {
     await refresh()
     await loadMembers()
   } catch { error.value = 'Le serveur est momentanément indisponible.' }
+
+  window.addEventListener('familytask:tasks-refresh', handleTasksRefresh)
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('familytask:tasks-refresh', handleTasksRefresh)
 })
 </script>
 

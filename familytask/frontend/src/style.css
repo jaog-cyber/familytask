@@ -226,6 +226,35 @@ h2 { margin: 0; color: var(--text); font-size: 22px; letter-spacing: -0.03em; }
 .message strong { color: var(--main); font-size: 12px; }
 .assistant-card .task-form { align-items: center; }
 
+.chat-assistant { display: grid; gap: 16px; }
+.chat-messages { display: grid; gap: 10px; min-height: 140px; }
+.chat-bubble {
+        display: grid;
+        gap: 4px;
+        padding: 11px 13px;
+        border-radius: 14px;
+        background: var(--page);
+        color: var(--text);
+        font-size: 14px;
+        line-height: 1.5;
+}
+.chat-bubble strong { color: var(--main); font-size: 12px; letter-spacing: 0.05em; text-transform: uppercase; }
+.chat-bubble-user { background: rgba(139, 92, 246, 0.08); }
+.chat-bubble-assistant { background: var(--page); }
+.chat-form { display: flex; align-items: center; gap: 10px; }
+.icon-button {
+        width: 44px;
+        height: 44px;
+        flex: 0 0 auto;
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        background: var(--page);
+        color: var(--text);
+        cursor: pointer;
+        font-size: 18px;
+}
+.icon-button:disabled { opacity: 0.7; cursor: wait; }
+
 @media (max-width: 520px) {
         .header-action { max-width: 92px; text-align: right; }
         .tab { min-width: 0; flex: 1; padding-inline: 8px; }

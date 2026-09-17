@@ -1,17 +1,36 @@
 import hashlib  # Importe les primitives de dérivation de clé.
 import hmac  # Compare les empreintes sans fuite temporelle exploitable.
+import json  # Décode les arguments JSON envoyés par le modèle lors d'un tool call.
 import os  # Importe le module permettant de lire les variables d'environnement.
 import secrets  # Génère les sels et jetons imprévisibles.
 import threading
 import time
+import unicodedata
 from collections import defaultdict, deque
-from typing import Optional
+from typing import Annotated
 
-from fastapi import Cookie, Depends, FastAPI, Header, HTTPException, Request, Response  # Importe les outils HTTP de FastAPI.
-from fastapi.middleware.cors import CORSMiddleware  # Importe le middleware qui autorise les requêtes du front-end.
+import httpx
+from fastapi import (  # Importe les outils HTTP de FastAPI.
+    Cookie,
+    Depends,
+    FastAPI,
+    Header,
+    HTTPException,
+    Request,
+    Response,
+)
+from fastapi.middleware.cors import (  # Importe le middleware qui autorise les requêtes du front-end.
+    CORSMiddleware,
+)
 from pydantic import BaseModel
 from sqlalchemy import inspect, text
-from sqlmodel import Field, Session, SQLModel, create_engine, select  # Importe les outils SQLModel nécessaires au modèle et à la base.
+from sqlmodel import (  # Importe les outils SQLModel nécessaires au modèle et à la base.
+    Field,
+    Session,
+    SQLModel,
+    create_engine,
+    select,
+)
 
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///familytask.db")  # Récupère l'adresse de la base ou utilise SQLite localement.
 APP_ENV = os.getenv("APP_ENV", "development").lower()  # Distingue le développement de la production.
@@ -50,6 +69,10 @@ class AuthRequest(BaseModel):
     name: str | None = None
     family: str | None = None
     lien: str | None = None
+
+
+class AssistantRequest(BaseModel):
+    message: str
 
 
 def hash_password(password: str) -> str:
@@ -137,9 +160,9 @@ def get_session():
 
 
 def current_member(
-    authorization: Optional[str] = Header(None),
-    session_cookie: Optional[str] = Cookie(None, alias=SESSION_COOKIE),
-    session: Session = Depends(get_session),
+    authorization: Annotated[str | None, Header()] = None,
+    session_cookie: Annotated[str | None, Cookie(alias=SESSION_COOKIE)] = None,
+    session: Annotated[Session, Depends(get_session)] = None,
 ) -> Member:
     scheme, _, token = (authorization or "").partition(" ")
     token = token if scheme.lower() == "bearer" else session_cookie
@@ -254,13 +277,235 @@ def login(credentials: AuthRequest, request: Request, response: Response) -> dic
 
 
 @app.get("/api/me")
-def me(member: Member = Depends(current_member)):
+def me(member: Annotated[Member, Depends(current_member)]):
     # Retourne uniquement les informations publiques du membre connecté.
     return public_member(member)
 
 
+def normalize_member_name(value: str) -> str:
+    normalized = unicodedata.normalize("NFD", value.strip().lower())
+    normalized = "".join(char for char in normalized if unicodedata.category(char) != "Mn")
+    return " ".join(normalized.split())
+
+
+def normalize_family_reference(value: str) -> str:
+    normalized = unicodedata.normalize("NFD", value.strip().lower())
+    normalized = "".join(char for char in normalized if unicodedata.category(char) != "Mn")
+    normalized = normalized.replace("’", "'").replace("-", " ")
+    return " ".join(normalized.split())
+
+
+def family_link_plural(label: str) -> str:
+    mapping = {
+        "fille": "filles",
+        "fils": "fils",
+        "frere": "freres",
+        "frère": "frères",
+        "soeur": "soeurs",
+        "sœur": "sœurs",
+        "mere": "meres",
+        "mère": "mères",
+        "pere": "peres",
+        "père": "pères",
+        "grand mere": "grand meres",
+        "grand mère": "grand mères",
+        "grand pere": "grand peres",
+        "grand père": "grand pères",
+    }
+    return mapping.get(normalize_family_reference(label), f"{label}s")
+
+
+def find_ambiguous_family_reference(family_code: str, raw_message: str) -> str | None:
+    message = normalize_family_reference(raw_message)
+    if not message:
+        return None
+
+    with Session(engine) as session:
+        family_members = session.exec(select(Member).where(Member.family_code == family_code)).all()
+
+    if not family_members:
+        return None
+
+    matched_relations = []
+    for member in family_members:
+        label = normalize_family_reference(member.lien)
+        if not label:
+            continue
+        if any(
+            phrase in message
+            for phrase in (
+                f"ma {label}",
+                f"mon {label}",
+                f"mes {label}",
+                f"ta {label}",
+                f"ton {label}",
+                f"tes {label}",
+                f"sa {label}",
+                f"son {label}",
+                f"ses {label}",
+                label,
+            )
+        ):
+            matched_relations.append(label)
+
+    for label in matched_relations:
+        members = [member for member in family_members if normalize_family_reference(member.lien) == label]
+        if len(members) > 1:
+            names = ", ".join(member.name for member in members)
+            return f"Il y a plusieurs {family_link_plural(label)} ({names}). Pour qui ?"
+
+    for label in sorted(set(matched_relations)):
+        members = [member for member in family_members if normalize_family_reference(member.lien) == label]
+        if len(members) > 1:
+            names = ", ".join(member.name for member in members)
+            return f"Il y a plusieurs {family_link_plural(label)} ({names}). Pour qui ?"
+
+    return None
+
+
+def find_member_by_first_name(family_code: str, given_name: str) -> Member:
+    target = normalize_member_name(given_name)
+    if not target:
+        raise HTTPException(status_code=422, detail="Le prénom de la personne est requis")
+
+    with Session(engine) as session:
+        matches = []
+        for family_member in session.exec(select(Member).where(Member.family_code == family_code)).all():
+            normalized_name = normalize_member_name(family_member.name)
+            normalized_first_name = normalize_member_name(family_member.name.split()[0]) if family_member.name else ""
+            if target in {normalized_name, normalized_first_name}:
+                matches.append(family_member)
+
+        if not matches:
+            raise HTTPException(status_code=404, detail=f"Personne introuvable: {given_name}")
+        if len(matches) > 1:
+            raise HTTPException(status_code=409, detail=f"Plusieurs personnes correspondent au prénom {given_name}")
+        return matches[0]
+
+
+def add_task_tool(member: Member, title: str, personne: str) -> Task:
+    title = title.strip()
+    personne = personne.strip()
+    if not title:
+        raise HTTPException(status_code=422, detail="Le titre de la tâche est requis")
+    if not personne:
+        raise HTTPException(status_code=422, detail="La personne est requise")
+
+    assignee = find_member_by_first_name(member.family_code, personne)
+
+    with Session(engine) as session:
+        task = Task(
+            owner_id=member.id,
+            member_id=assignee.id,
+            family_code=member.family_code,
+            title=title,
+            done=False,
+        )
+        session.add(task)
+        session.commit()
+        session.refresh(task)
+        return task
+
+
+@app.post("/api/assistant")
+async def assistant_reply(request: AssistantRequest, member: Annotated[Member, Depends(current_member)]):
+    message = request.message.strip()
+    if not message:
+        raise HTTPException(status_code=422, detail="Le message ne peut pas être vide")
+
+    ambiguous_reference = find_ambiguous_family_reference(member.family_code, message)
+    if ambiguous_reference:
+        return ambiguous_reference
+
+    ai_token = os.getenv("AI_TOKEN")
+    if not ai_token:
+        fallback = (
+            "L’assistant IA n’est pas encore connecté sur ce serveur. "
+            "Je peux quand même t’aider à organiser les tâches de la famille depuis l’application."
+        )
+        return {"message": fallback}
+
+    tools = [{
+        "type": "function",
+        "function": {
+            "name": "ajouter_tache",
+            "description": "Ajoute une tâche pour une personne de la famille.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "titre": {"type": "string", "description": "Titre de la tâche à ajouter."},
+                    "personne": {"type": "string", "description": "Nom de la personne qui reçoit la tâche."},
+                },
+                "required": ["titre", "personne"],
+            },
+        },
+    }]
+
+    async with httpx.AsyncClient(timeout=60.0) as client:
+        response = await client.post(
+            "https://models.github.ai/inference/chat/completions",
+            headers={"Authorization": f"Bearer {ai_token}"},
+            json={
+                "model": "openai/gpt-4o-mini",
+                "messages": [{"role": "user", "content": message}],
+                "tools": tools,
+            },
+        )
+
+    if response.status_code >= 400:
+        raise HTTPException(status_code=502, detail=f"Erreur de l'API IA: {response.text[:300]}")
+
+    try:
+        message_payload = response.json()["choices"][0]["message"]
+    except (KeyError, IndexError, TypeError, ValueError):
+        raise HTTPException(status_code=502, detail="Réponse inattendue de l'API IA")
+
+    tool_calls = message_payload.get("tool_calls")
+    if tool_calls:
+        tool_call = tool_calls[0]
+        function_data = tool_call.get("function", {})
+        function_name = function_data.get("name")
+        arguments_raw = function_data.get("arguments", "{}")
+
+        try:
+            arguments = json.loads(arguments_raw) if isinstance(arguments_raw, str) else arguments_raw
+        except json.JSONDecodeError as exc:
+            raise HTTPException(status_code=502, detail=f"Arguments d'outil invalides: {exc}")
+
+        if function_name == "ajouter_tache":
+            task = add_task_tool(member, arguments.get("titre", ""), arguments.get("personne", ""))
+            assignee = None
+            with Session(engine) as session:
+                assignee = session.get(Member, task.member_id)
+            person_name = assignee.name if assignee else "la personne"
+            return {
+                "message": f"✅ La tâche « {task.title} » a bien été ajoutée pour {person_name}.",
+                "task": task,
+            }
+
+    content = message_payload.get("content")
+    if isinstance(content, list):
+        text_parts = []
+        for part in content:
+            if isinstance(part, str):
+                text_parts.append(part)
+            elif isinstance(part, dict):
+                text = part.get("text") or part.get("content")
+                if text:
+                    text_parts.append(str(text))
+        content = "".join(text_parts)
+
+    if content is None:
+        raise HTTPException(status_code=502, detail="Réponse vide de l'API IA")
+
+    return content
+
+
 @app.get("/api/members")
-def list_members(member: Member = Depends(current_member), session: Session = Depends(get_session)):
+def list_members(
+    member: Annotated[Member, Depends(current_member)],
+    session: Annotated[Session, Depends(get_session)],
+):
     return [
         public_member(family_member)
         for family_member in session.exec(
@@ -270,7 +515,11 @@ def list_members(member: Member = Depends(current_member), session: Session = De
 
 
 @app.post("/api/logout")
-def logout(response: Response, member: Member = Depends(current_member), session: Session = Depends(get_session)):
+def logout(
+    response: Response,
+    member: Annotated[Member, Depends(current_member)],
+    session: Annotated[Session, Depends(get_session)],
+):
     # Invalide le jeton en le supprimant de la base de données.
     member.token = None
     session.add(member)
@@ -281,7 +530,7 @@ def logout(response: Response, member: Member = Depends(current_member), session
 
 
 @app.get("/api/tasks", response_model=list[Task])  # Enregistre la route qui retourne toutes les tâches.
-def get_tasks(member: Member = Depends(current_member)):  # Déclare la route de récupération des tâches.
+def get_tasks(member: Annotated[Member, Depends(current_member)]):  # Déclare la route de récupération des tâches.
     with Session(engine) as session:  # Ouvre une session SQLModel pour interroger la base de données.
         tasks = session.exec(select(Task).where(
             Task.family_code == member.family_code,
@@ -291,7 +540,7 @@ def get_tasks(member: Member = Depends(current_member)):  # Déclare la route de
 
 
 @app.get("/api/tasks/famille", response_model=list[Task])
-def get_family_tasks(member: Member = Depends(current_member)):
+def get_family_tasks(member: Annotated[Member, Depends(current_member)]):
     if not member.is_admin:
         raise HTTPException(status_code=403, detail="Seul l'admin peut voir les tâches de la famille")
     with Session(engine) as session:
@@ -299,8 +548,11 @@ def get_family_tasks(member: Member = Depends(current_member)):
 
 
 @app.post("/api/tasks", response_model=Task)  # Enregistre la route de création d'une tâche.
-def create_task(title: str, member_id: int | None = None,
-                member: Member = Depends(current_member)):  # Reçoit le titre et l'éventuel membre assigné.
+def create_task(
+    title: str,
+    member_id: int | None = None,
+    member: Annotated[Member, Depends(current_member)] = None,
+):  # Reçoit le titre et l'éventuel membre assigné.
     if not title.strip():  # Refuse les titres vides ou composés uniquement d'espaces.
         raise HTTPException(status_code=422, detail="Le titre de la tâche ne peut pas être vide")  # Signale un titre invalide.
     assignee_id = member.id
@@ -325,7 +577,10 @@ def create_task(title: str, member_id: int | None = None,
 
 
 @app.patch("/api/tasks/{task_id}", response_model=Task)  # Enregistre la route qui inverse l'état d'une tâche.
-def toggle_task(task_id: int, member: Member = Depends(current_member)):  # Reçoit l'identifiant de la tâche à modifier.
+def toggle_task(
+    task_id: int,
+    member: Annotated[Member, Depends(current_member)],
+):  # Reçoit l'identifiant de la tâche à modifier.
     with Session(engine) as session:  # Ouvre une session pour rechercher et modifier la tâche.
         task = session.get(Task, task_id)  # Recherche la tâche à partir de son identifiant.
         if task is None or task.family_code != member.family_code or task.member_id != member.id:  # Empêche l'accès aux tâches d'un autre membre.
@@ -338,7 +593,10 @@ def toggle_task(task_id: int, member: Member = Depends(current_member)):  # Reç
 
 
 @app.delete("/api/tasks/{task_id}")  # Enregistre la route de suppression d'une tâche.
-def delete_task(task_id: int, member: Member = Depends(current_member)):  # Reçoit l'identifiant de la tâche à supprimer.
+def delete_task(
+    task_id: int,
+    member: Annotated[Member, Depends(current_member)],
+):  # Reçoit l'identifiant de la tâche à supprimer.
     with Session(engine) as session:  # Ouvre une session pour rechercher et supprimer la tâche.
         task = session.get(Task, task_id)  # Recherche la tâche à partir de son identifiant.
         if task is None or task.family_code != member.family_code or task.member_id != member.id:  # Empêche la suppression d'une tâche d'un autre membre.
